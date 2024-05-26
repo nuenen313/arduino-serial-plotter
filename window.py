@@ -9,6 +9,9 @@ from PyQt5.QtCore import Qt, QSize
 from serial_com_reader import PortReader, ReadPortData
 
 class MyMainWindow(QMainWindow):
+    """
+    
+    """
     def __init__(self):
         super().__init__()
         self.port = None
@@ -20,10 +23,9 @@ class MyMainWindow(QMainWindow):
 
         self.plot_widget = pg.PlotWidget()
         self.layout.addWidget(self.plot_widget)
-        self.plotData()
-        
+        self.plotData()       
         self.setupGUI()
-    
+ 
     def plotData(self):
         time = np.linspace(0,10, dtype=int)
         temp = np.linspace(25.0, 37.0, dtype=float)
@@ -31,14 +33,14 @@ class MyMainWindow(QMainWindow):
         styles = {"color": "#fff", "font-size": "20px"}
         self.plot_widget.setLabel("left", "y axis", **styles)
         self.plot_widget.setLabel("bottom", "time, ms", **styles)
-  
+ 
     def setupGUI(self):
         self.setGeometry(0, 0, 1000, 700)
         self.setContentsMargins(10, 10, 10, 10)
         self.createToolbar()
         self.csv_file = ""
         self.csv_file_name = ""
-    
+   
     def createToolbar(self):
         self.toolbar = self.addToolBar("File")
         self.toolbar.setContextMenuPolicy(Qt.PreventContextMenu)
@@ -63,9 +65,9 @@ class MyMainWindow(QMainWindow):
         self.toolbar.addWidget(self.portComboBox)
 
         self.baudRateComboBox = QComboBox()
-        bauds = ['300 baud', '1200 baud', '2400 baud', '4800 baud', '9600 baud', '19200 baud', '38400 baud', 
-        '57600 baud', '74880 baud', '115200 baud', '230400 baud', '250000 baud', '500000 baud', '1000000 baud', 
-        '2000000 baud']
+        bauds = ['300 baud', '1200 baud', '2400 baud', '4800 baud', '9600 baud', '19200 baud',
+        '38400 baud', '57600 baud', '74880 baud', '115200 baud', '230400 baud', '250000 baud',
+        '500000 baud', '1000000 baud', '2000000 baud']
         self.baudRateComboBox.addItems(bauds)
         self.toolbar.addWidget(self.baudRateComboBox)
         self.selectedBaudRate = QLabel(f"Selected baud rate: {self.baud}")
@@ -78,7 +80,7 @@ class MyMainWindow(QMainWindow):
         self.selectedPortLabel = QLabel(f"Selected Port: {self.port}")
         self.layout.addWidget(self.selectedPortLabel)
         self.portComboBox.currentIndexChanged.connect(self.onPortSelected)
-    
+  
     def onBaudSelected(self, baudIndex):
         selectedBaud = self.baudRateComboBox.currentText()
         self.selectedBaudRate.setText(f"Selected baud rate: {selectedBaud}")
@@ -89,7 +91,7 @@ class MyMainWindow(QMainWindow):
         print(type(ports))
         self.portComboBox.clear()
         self.portComboBox.addItems(ports)
-        
+       
     def onPortSelected(self, index):
         selectedPort = self.portComboBox.currentText()
         self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
@@ -98,11 +100,6 @@ class MyMainWindow(QMainWindow):
             read = ReadPortData(self.port, 2000000)
             dataAr = read.readDataLines()
             print(dataAr)
-    
-    def save_file(self):
-       fname,_ = QFileDialog.getSaveFileName(self, 'Save file', file_name,
-                                    "CSV Files (*.csv *.tsv *.txt);;All Files (*.*)") 
-
 
 def main():
     app = QApplication(sys.argv)
