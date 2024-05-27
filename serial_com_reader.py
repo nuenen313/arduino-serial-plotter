@@ -25,7 +25,7 @@ class ReadPortData:
             serialData = serial.Serial(self.port, self.baud)
         except serial.SerialException:
             return EnvironmentError("Serial port can't be reached")
-      
+
         dataArray = np.empty((0,), dtype=object)
 
         if serialData:
