@@ -10,7 +10,8 @@ from serial_com_reader import PortReader, ReadPortData
 
 class MyMainWindow(QMainWindow):
     """
-    
+    Main window, with a toolbar, the option to save the data to .csv, and
+    pyqtgraph widget with the data.
     """
     def __init__(self):
         super().__init__()
@@ -23,9 +24,9 @@ class MyMainWindow(QMainWindow):
 
         self.plot_widget = pg.PlotWidget()
         self.layout.addWidget(self.plot_widget)
-        self.plotData()       
+        self.plotData()
         self.setupGUI()
- 
+
     def plotData(self):
         time = np.linspace(0,10, dtype=int)
         temp = np.linspace(25.0, 37.0, dtype=float)
@@ -33,14 +34,14 @@ class MyMainWindow(QMainWindow):
         styles = {"color": "#fff", "font-size": "20px"}
         self.plot_widget.setLabel("left", "y axis", **styles)
         self.plot_widget.setLabel("bottom", "time, ms", **styles)
- 
+
     def setupGUI(self):
         self.setGeometry(0, 0, 1000, 700)
         self.setContentsMargins(10, 10, 10, 10)
         self.createToolbar()
         self.csv_file = ""
         self.csv_file_name = ""
-   
+
     def createToolbar(self):
         self.toolbar = self.addToolBar("File")
         self.toolbar.setContextMenuPolicy(Qt.PreventContextMenu)
@@ -80,7 +81,7 @@ class MyMainWindow(QMainWindow):
         self.selectedPortLabel = QLabel(f"Selected Port: {self.port}")
         self.layout.addWidget(self.selectedPortLabel)
         self.portComboBox.currentIndexChanged.connect(self.onPortSelected)
-  
+
     def onBaudSelected(self, baudIndex):
         selectedBaud = self.baudRateComboBox.currentText()
         self.selectedBaudRate.setText(f"Selected baud rate: {selectedBaud}")
@@ -91,7 +92,7 @@ class MyMainWindow(QMainWindow):
         print(type(ports))
         self.portComboBox.clear()
         self.portComboBox.addItems(ports)
-       
+
     def onPortSelected(self, index):
         selectedPort = self.portComboBox.currentText()
         self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
