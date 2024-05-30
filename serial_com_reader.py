@@ -1,11 +1,6 @@
-import sys
-import os
 import serial
-import glob
 import numpy as np
 import serial.tools.list_ports
-from collections import deque
-from threading import Thread, Lock
 
 class PortReader:
     def readAvailablePorts():
@@ -39,10 +34,10 @@ class ReadPortData:
                 self.serialData.close()
                 self.serialData.open()
                 if self.serialData.is_open:
-                    portOpen = True
-                    while portOpen == True:
+                    self.portOpen = True
+                    while self.portOpen == True:
                         size = self.serialData.in_waiting
-                        if size:
+                        if size > 8000: #twice the selected adxl355 odr
                             newDataRow = self.serialData.readlines(size)
                             newDataArray = np.array(newDataRow, dtype='object')
                             dataArray = np.hstack([dataArray, newDataArray])
@@ -51,7 +46,7 @@ class ReadPortData:
                             continue
             except Exception as e:
                 self.serialData.close()
-                print(f"An error occurred: {e}")
+                self.portOpen = False
                 return None
             finally:
                 self.serialData.close()
