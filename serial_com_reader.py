@@ -20,37 +20,38 @@ class ReadPortData:
         self.buf = bytearray()
         self.port = port
         self.baud = baud
+        self.serialData = None
+
+    def closePort(self):
+        if self.serialData is not None:
+            self.serialData.close()
+
     def readDataLines(self):
         try:
-            serialData = serial.Serial(self.port, self.baud)
+            self.serialData = serial.Serial(self.port, self.baud)
         except serial.SerialException:
             return EnvironmentError("Serial port can't be reached")
 
         dataArray = np.empty((0,), dtype=object)
 
-        if serialData:
+        if self.serialData:
             try:
-                serialData.close()
-                serialData.open()
-                if serialData.is_open:
+                self.serialData.close()
+                self.serialData.open()
+                if self.serialData.is_open:
                     portOpen = True
                     while portOpen == True:
-                        size = serialData.in_waiting
+                        size = self.serialData.in_waiting
                         if size:
-                            newDataRow = serialData.readlines(size)
+                            newDataRow = self.serialData.readlines(size)
                             newDataArray = np.array(newDataRow, dtype='object')
                             dataArray = np.hstack([dataArray, newDataArray])
+                            return dataArray
                         else:
                             continue
-                return dataArray
-            except KeyboardInterrupt:
-                serialData.close()
-                print('Interrupted')
-                portOpen = False
-                return dataArray
             except Exception as e:
-                serialData.close()
+                self.serialData.close()
                 print(f"An error occurred: {e}")
                 return None
             finally:
-                serialData.close()
+                self.serialData.close()

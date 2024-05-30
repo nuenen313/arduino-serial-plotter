@@ -5,8 +5,11 @@ from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QTableWidgetItem, QFileDialog, QStyle,
                              QAction, QComboBox, QLabel)
 import pyqtgraph as pg
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt, QSize, QTimer
 from serial_com_reader import PortReader, ReadPortData
+import threading
+import queue
+import time
 
 class MyMainWindow(QMainWindow):
     """
@@ -17,23 +20,78 @@ class MyMainWindow(QMainWindow):
         super().__init__()
         self.port = None
         self.baud = None
+        self.read = None
         self.setWindowTitle('Arduino serial COM plotter')
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
+        self.dataAr = []
+        self.x, self.y, self.z = None, None, None
+        self.data_queue = queue.Queue()
+        self.total_time = 0
 
         self.plot_widget = pg.PlotWidget()
+        self.plot_widget.setBackground('w')
         self.layout.addWidget(self.plot_widget)
-        self.plotData()
         self.setupGUI()
 
-    def plotData(self):
-        time = np.linspace(0,10, dtype=int)
-        temp = np.linspace(25.0, 37.0, dtype=float)
-        self.plot_widget.plot(time, temp, pen='w')
-        styles = {"color": "#fff", "font-size": "20px"}
-        self.plot_widget.setLabel("left", "y axis", **styles)
-        self.plot_widget.setLabel("bottom", "time, ms", **styles)
+        self.time_counter = 0
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.updateData)
+        self.timer.start(100)
+        self.thread = threading.Thread(target=self.readDataThread, daemon=True)
+        self.thread.start()
+
+    def plotData(self, time):
+        if self.z is not None and len(time)==len(self.z):
+            self.plot_widget.clear()
+            self.plot_widget.plot(time, self.z, pen='k')
+            styles = {"color": "#454545", "font-size": "20px"}
+            self.plot_widget.setBackground('w')
+            self.plot_widget.setLabel("left", "y axis", **styles)
+            self.plot_widget.setLabel("bottom", "time, ms", **styles)
+            self.plot_widget.setXRange(time[0], time[-1])
+
+    def updatePlot(self):
+        if not self.data_queue.empty():
+            self.processData()
+            self.time_counter += len(self.z)
+
+    def readDataThread(self):
+        while True:
+            if self.port and self.baud:
+                read = ReadPortData(self.port, self.baud)
+                data = read.readDataLines()
+                if data is not None and not isinstance(data, OSError):
+                    for line in data:
+                        self.data_queue.put(line)
+
+    def processData(self):
+        decodedData = []
+        while not self.data_queue.empty():
+            decodedData.append(self.data_queue.get().decode('utf-8').strip())
+    
+        if decodedData:
+            decodedData = decodedData[1:]
+            expected_length = len(decodedData[0].split(','))
+            valid_lines = [line.split(',') for line in decodedData if len(line.split(',')) == expected_length]
+            valid_lines_filtered = [[float(val) for val in line] for line in valid_lines if all(val.strip() for val in line)]
+            axesArray = np.array(valid_lines_filtered, dtype=float)
+            self.x = axesArray[:, 0]
+            self.y = axesArray[:, 1]
+            self.z = axesArray[:, 2]
+
+            num_data_points = len(self.z)-1
+            new_time = np.arange(self.total_time, self.total_time + num_data_points * 0.001, 0.001)
+            self.total_time += num_data_points * 0.001
+            self.plotData(new_time)
+
+    def updateData(self):
+        if self.port and self.baud:
+            self.read = ReadPortData(self.port, self.baud)
+            self.dataAr = self.read.readDataLines()
+            if self.dataAr is not None:
+                self.processData()
 
     def setupGUI(self):
         self.setGeometry(0, 0, 1000, 700)
@@ -55,7 +113,6 @@ class MyMainWindow(QMainWindow):
         save_btn = QToolButton(text = "Save", icon = save_icon)
         save_btn.setStyleSheet("QToolButton:hover {background: #D7DAE0;}")
         self.toolbar.addWidget(save_btn)
-        save_btn.clicked.connect(self.save_file)
 
         self.statusbar = self.statusBar()
         self.statusbar.setStyleSheet("font-size: 12pt; color: #888a85")
@@ -82,25 +139,38 @@ class MyMainWindow(QMainWindow):
         self.layout.addWidget(self.selectedPortLabel)
         self.portComboBox.currentIndexChanged.connect(self.onPortSelected)
 
-    def onBaudSelected(self, baudIndex):
-        selectedBaud = self.baudRateComboBox.currentText()
-        self.selectedBaudRate.setText(f"Selected baud rate: {selectedBaud}")
-        self.baud = selectedBaud.split(" ")[0]
+    def onBaudSelected(self):
+        if self.read:
+            self.read.closePort()
+            self.read = None
+            self.baud = None
+            selectedBaud = self.baudRateComboBox.currentText()
+            self.selectedBaudRate.setText(f"Selected baud rate: {selectedBaud}")
+        else:
+            selectedBaud = self.baudRateComboBox.currentText()
+            self.selectedBaudRate.setText(f"Selected baud rate: {selectedBaud}")
+            self.baud = int(selectedBaud.split(" ")[0])
+            if self.port and self.baud:
+                self.updateData()
 
     def updatePorts(self):
         ports = PortReader.readAvailablePorts()
-        print(type(ports))
         self.portComboBox.clear()
         self.portComboBox.addItems(ports)
 
-    def onPortSelected(self, index):
-        selectedPort = self.portComboBox.currentText()
-        self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
-        self.port = selectedPort.split(" ")[0][:-1]
-        if self.port and self.baud:
-            read = ReadPortData(self.port, 2000000)
-            dataAr = read.readDataLines()
-            print(dataAr)
+    def onPortSelected(self):
+        if self.read:
+            self.read.closePort()
+            self.read = None
+            self.port = None
+            selectedPort = self.portComboBox.currentText()
+            self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
+        else:
+            selectedPort = self.portComboBox.currentText()
+            self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
+            self.port = selectedPort.split(" ")[0][:-1]
+            if self.port and self.baud:
+                self.updateData()
 
 def main():
     app = QApplication(sys.argv)
