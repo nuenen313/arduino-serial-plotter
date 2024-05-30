@@ -3,13 +3,12 @@ import numpy as np
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QToolButton, QTableWidget, QVBoxLayout,
                              QTableWidgetItem, QFileDialog, QStyle,
-                             QAction, QComboBox, QLabel)
+                             QAction, QComboBox, QLabel, QPushButton)
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt, QSize, QTimer
 from serial_com_reader import PortReader, ReadPortData
 import threading
 import queue
-import time
 
 class MyMainWindow(QMainWindow):
     """
@@ -38,19 +37,35 @@ class MyMainWindow(QMainWindow):
         self.time_counter = 0
         self.timer = QTimer()
         self.timer.timeout.connect(self.updateData)
-        self.timer.start(100)
+        self.timer.start(1)
         self.thread = threading.Thread(target=self.readDataThread, daemon=True)
         self.thread.start()
 
+        self.second_plot_visible = False
+
     def plotData(self, time):
-        if self.z is not None and len(time)==len(self.z):
+        if self.y is not None and len(time)==len(self.z):
             self.plot_widget.clear()
             self.plot_widget.plot(time, self.z, pen='k')
-            styles = {"color": "#454545", "font-size": "20px"}
+            styles = {"color": "#454545", "font-size": "12px"}
             self.plot_widget.setBackground('w')
-            self.plot_widget.setLabel("left", "y axis", **styles)
-            self.plot_widget.setLabel("bottom", "time, ms", **styles)
+            self.plot_widget.setLabel("left", "Acceleration, g", **styles)
+            self.plot_widget.setLabel("bottom", "Time, ms", **styles)
             self.plot_widget.setXRange(time[0], time[-1])
+
+            fft_z = np.fft.fft(self.z)
+            freq = np.fft.fftfreq(len(self.z), d=(1/4000)) #d=1/odr
+            if self.second_plot_visible == True:
+                self.plotFFT(fft_z, freq)
+
+    def plotFFT(self, fft_z, freq):
+        n = len(self.z)
+        half_n = n//2
+        self.second_plot_widget.clear()
+        self.second_plot_widget.plot(freq[:half_n], np.abs(fft_z)[:half_n], pen='r')
+        styles = {"color": "#454545", "font-size": "12px"}
+        self.second_plot_widget.setLabel("left", "Amplitude", **styles)
+        self.second_plot_widget.setLabel("bottom", 'Frequency, Hz', **styles)
 
     def updatePlot(self):
         if not self.data_queue.empty():
@@ -81,9 +96,9 @@ class MyMainWindow(QMainWindow):
             self.y = axesArray[:, 1]
             self.z = axesArray[:, 2]
 
-            num_data_points = len(self.z)-1
-            new_time = np.arange(self.total_time, self.total_time + num_data_points * 0.001, 0.001)
-            self.total_time += num_data_points * 0.001
+            num_data_points = len(self.z)
+            new_time = np.arange(self.total_time, self.total_time + num_data_points * 0.25, 0.25)
+            self.total_time += num_data_points * 0.25 #1/odr, ms
             self.plotData(new_time)
 
     def updateData(self):
@@ -116,13 +131,14 @@ class MyMainWindow(QMainWindow):
 
         self.statusbar = self.statusBar()
         self.statusbar.setStyleSheet("font-size: 12pt; color: #888a85")
-        self.statusbar.showMessage("Ready")
+        self.statusbar.showMessage("Select COM & baud rate")
 
         self.portComboBox = QComboBox()
         self.updatePorts()
         self.toolbar.addWidget(self.portComboBox)
 
         self.baudRateComboBox = QComboBox()
+        self.baudRateComboBox.setFixedWidth(100)
         bauds = ['300 baud', '1200 baud', '2400 baud', '4800 baud', '9600 baud', '19200 baud',
         '38400 baud', '57600 baud', '74880 baud', '115200 baud', '230400 baud', '250000 baud',
         '500000 baud', '1000000 baud', '2000000 baud']
@@ -139,6 +155,23 @@ class MyMainWindow(QMainWindow):
         self.layout.addWidget(self.selectedPortLabel)
         self.portComboBox.currentIndexChanged.connect(self.onPortSelected)
 
+        self.toggle_fft_button = QPushButton('FFT')
+        self.toggle_fft_button.clicked.connect(self.toggleFFT)
+        self.layout.addWidget(self.toggle_fft_button)
+        self.second_plot_widget = pg.PlotWidget()
+        self.second_plot_widget.setBackground('w')
+        self.second_plot_widget.setFixedHeight(280)
+        self.second_plot_widget.hide()
+        self.layout.addWidget(self.second_plot_widget)
+
+    def toggleFFT(self):
+        if self.second_plot_visible:
+            self.second_plot_widget.hide()
+            self.second_plot_visible = False
+        else:
+            self.second_plot_widget.show()
+            self.second_plot_visible = True
+
     def onBaudSelected(self):
         if self.read:
             self.read.closePort()
@@ -151,12 +184,18 @@ class MyMainWindow(QMainWindow):
             self.selectedBaudRate.setText(f"Selected baud rate: {selectedBaud}")
             self.baud = int(selectedBaud.split(" ")[0])
             if self.port and self.baud:
+                self.statusbar.showMessage("Ready")
                 self.updateData()
 
     def updatePorts(self):
         ports = PortReader.readAvailablePorts()
         self.portComboBox.clear()
         self.portComboBox.addItems(ports)
+        if self.read:
+            self.read.closePort()
+            self.read = None
+        self.port = None
+        self.statusbar.showMessage("Select COM and baud rate")
 
     def onPortSelected(self):
         if self.read:
@@ -170,6 +209,7 @@ class MyMainWindow(QMainWindow):
             self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
             self.port = selectedPort.split(" ")[0][:-1]
             if self.port and self.baud:
+                self.statusbar.showMessage("Ready")
                 self.updateData()
 
 def main():
