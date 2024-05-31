@@ -2,7 +2,7 @@ import sys
 import numpy as np
 from scipy import signal
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
-                             QToolButton, QTableWidget, QVBoxLayout,
+                             QToolButton, QRadioButton, QVBoxLayout,
                              QMessageBox, QFileDialog, QStyle,
                              QAction, QComboBox, QLabel, QPushButton)
 import pyqtgraph as pg
@@ -22,6 +22,7 @@ class MyMainWindow(QMainWindow):
         self.port = None
         self.baud = None
         self.read = None
+        self.selectedAxis = "y"
         self.setWindowTitle('Arduino serial COM plotter')
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -53,20 +54,26 @@ class MyMainWindow(QMainWindow):
         self.third_plot_visible = False
 
     def plotData(self, time):
-        if self.y is not None and len(time)==len(self.z):
+        if self.selectedAxis == "x":
+            axis = self.x
+        elif self.selectedAxis == "y":
+            axis = self.y
+        elif self.selectedAxis == "z":
+            axis = self.z
+        if self.z is not None and len(time)==len(self.z):
             self.plot_widget.clear()
-            self.plot_widget.plot(time, self.z, pen={'color': 'k', 'width':1})
+            self.plot_widget.plot(time, axis, pen={'color': 'k', 'width':1})
             styles = {"color": "#454545", "font-size": "12px"}
             self.plot_widget.setBackground('w')
             self.plot_widget.setLabel("left", "Acceleration, g", **styles)
             self.plot_widget.setLabel("bottom", "Time, ms", **styles)
             self.plot_widget.setXRange(time[0], time[-1])
 
-            self.rms = np.sqrt(np.mean(self.z**2))*9.81
+            self.rms = np.sqrt(np.mean(axis**2))*9.81
             self.calculatedRMS.setText(f"RMS: {self.rms} m/s**2")
-            fft_z = np.fft.fft(self.z)
-            freq = np.fft.fftfreq(len(self.z), d=(1/4000)) #d=1/odr
-            (f_c, S) = signal.welch(self.z, 4000, nperseg=len(self.z))
+            fft_z = np.fft.fft(axis)
+            freq = np.fft.fftfreq(len(axis), d=(1/4000)) #d=1/odr
+            (f_c, S) = signal.welch(axis, 4000, nperseg=len(axis))
             if self.second_plot_visible == True:
                 self.plotFFT(fft_z, freq)
             if self.third_plot_visible == True:
@@ -164,6 +171,13 @@ class MyMainWindow(QMainWindow):
         record_btn.clicked.connect(self.selectSaveDirectory)
         self.toolbar.addWidget(record_btn)
 
+        stop_icon = self.style().standardIcon(QStyle.SP_BrowserStop)
+        self.stop_btn = QToolButton(text="Stop recording", icon=stop_icon)
+        self.stop_btn.setStyleSheet("QToolButton:hover {background: #D7DAE0;}")
+        self.stop_btn.clicked.connect(self.stopRecording)
+        self.stop_btn.setEnabled(False)
+        self.toolbar.addWidget(self.stop_btn)
+
         self.statusbar = self.statusBar()
         self.statusbar.setStyleSheet("font-size: 12pt; color: #888a85")
         self.statusbar.showMessage("Select COM & baud rate")
@@ -184,15 +198,19 @@ class MyMainWindow(QMainWindow):
         self.baudRateComboBox.addItems(bauds)
         self.toolbar.addWidget(self.baudRateComboBox)
 
-        stop_icon = self.style().standardIcon(QStyle.SP_BrowserStop)
-        self.stop_btn = QToolButton(text="Stop recording", icon=stop_icon)
-        self.stop_btn.setStyleSheet("QToolButton:hover {background: #D7DAE0;}")
-        self.stop_btn.clicked.connect(self.stopRecording)
-        self.stop_btn.setEnabled(False)
-        self.toolbar.addWidget(self.stop_btn)
-
         self.calculatedRMS = QLabel()
         self.layout.addWidget(self.calculatedRMS)
+
+        self.radio_button_x = QRadioButton("X")
+        self.radio_button_y = QRadioButton("Y")
+        self.radio_button_z = QRadioButton("Z")
+        self.layout.addWidget(self.radio_button_x)
+        self.layout.addWidget(self.radio_button_y)
+        self.layout.addWidget(self.radio_button_z)
+        self.radio_button_x.toggled.connect(self.on_radio_button_toggled)
+        self.radio_button_y.toggled.connect(self.on_radio_button_toggled)
+        self.radio_button_z.toggled.connect(self.on_radio_button_toggled)
+        self.radio_button_y.setChecked(True)
 
         self.selectedPortLabel = QLabel(f"Selected Port: {self.port}")
         self.layout.addWidget(self.selectedPortLabel)
@@ -221,6 +239,14 @@ class MyMainWindow(QMainWindow):
         self.third_plot_widget.setFixedHeight(280)
         self.third_plot_widget.hide()
         self.layout.addWidget(self.third_plot_widget)
+
+    def on_radio_button_toggled(self):
+        if self.radio_button_x.isChecked():
+            self.selectedAxis = "x"
+        elif self.radio_button_y.isChecked():
+            self.selectedAxis = "y"
+        elif self.radio_button_z.isChecked():
+            self.selectedAxis = "z"
 
     def selectSaveDirectory(self):
         options = QFileDialog.Options()
