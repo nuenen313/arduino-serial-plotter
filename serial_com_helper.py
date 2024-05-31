@@ -25,7 +25,7 @@ class ReadPortData:
         if self.serialData is not None:
             self.serialData.close()
 
-    def readDataLines(self):
+    def readDataLines(self, size2=12000):
         try:
             self.serialData = serial.Serial(self.port, self.baud)
         except serial.SerialException:
@@ -41,7 +41,7 @@ class ReadPortData:
                     self.portOpen = True
                     while self.portOpen == True:
                         size = self.serialData.in_waiting
-                        if size > 12000: #twice the selected adxl355 odr
+                        if size > size2: #three times the selected adxl355 odr
                             newDataRow = self.serialData.readlines(size)
                             newDataArray = np.array(newDataRow, dtype='object')
                             dataArray = np.hstack([dataArray, newDataArray])

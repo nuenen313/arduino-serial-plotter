@@ -10,6 +10,7 @@ from PyQt5.QtCore import Qt, QSize, QTimer
 from serial_com_helper import PortReader, ReadPortData, DataSaving
 import threading
 import queue
+from save_temp_to_file import main_temp
 import time
 
 class MyMainWindow(QMainWindow):
@@ -53,7 +54,7 @@ class MyMainWindow(QMainWindow):
         self.second_plot_visible = False
         self.third_plot_visible = False
 
-    def plotData(self, time):
+    def plotData(self, time): #TODO: move data helper methods to another class?
         if self.selectedAxis == "x":
             axis = self.x
         elif self.selectedAxis == "y":
@@ -72,7 +73,7 @@ class MyMainWindow(QMainWindow):
             self.rms = np.sqrt(np.mean(axis**2))*9.81
             self.calculatedRMS.setText(f"RMS: {self.rms} m/s**2")
             fft_z = np.fft.fft(axis)
-            freq = np.fft.fftfreq(len(axis), d=(1/4000)) #d=1/odr
+            freq = np.fft.fftfreq(len(axis), d=(1/4000)) #d=1/odr #TODO: fs as user input
             (f_c, S) = signal.welch(axis, 4000, nperseg=len(axis))
             if self.second_plot_visible == True:
                 self.plotFFT(fft_z, freq)
@@ -131,7 +132,7 @@ class MyMainWindow(QMainWindow):
             expected_length = len(decodedData[0].split(','))
             valid_lines = [line.split(',') for line in decodedData if len(line.split(',')) == expected_length]
             valid_lines_filtered = [[float(val) for val in line] for line in valid_lines if all(val.strip() for val in line)]
-            axesArray = np.array(valid_lines_filtered, dtype=float)
+            axesArray = np.array(valid_lines_filtered, dtype=float) #TODO: no of axes as user input
             self.x = axesArray[:, 0]
             self.y = axesArray[:, 1]
             self.z = axesArray[:, 2]
@@ -191,7 +192,7 @@ class MyMainWindow(QMainWindow):
         self.toolbar.addAction(refresh_action)
 
         self.baudRateComboBox = QComboBox()
-        self.baudRateComboBox.setFixedWidth(100)
+        self.baudRateComboBox.setFixedWidth(150)
         bauds = ['300 baud', '1200 baud', '2400 baud', '4800 baud', '9600 baud', '19200 baud',
         '38400 baud', '57600 baud', '74880 baud', '115200 baud', '230400 baud', '250000 baud',
         '500000 baud', '1000000 baud', '2000000 baud']
@@ -254,8 +255,12 @@ class MyMainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, "Select Directory", options=options)
         if directory:
             self.save_directory = directory
-            self.startRecording()
-            self.stop_btn.setEnabled(True)
+            reply = QMessageBox.question(self, 'Start saving data',
+                                         "The current option will start continuously saving data to the chosen dircetory. Proceed?",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self.startRecording()
+                self.stop_btn.setEnabled(True)
 
     def startRecording(self):
         self.stop_btn.setEnabled(True)
