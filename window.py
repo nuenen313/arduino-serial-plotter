@@ -1,14 +1,16 @@
 import sys
 import numpy as np
+from scipy import signal
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QToolButton, QTableWidget, QVBoxLayout,
-                             QTableWidgetItem, QFileDialog, QStyle,
+                             QMessageBox, QFileDialog, QStyle,
                              QAction, QComboBox, QLabel, QPushButton)
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt, QSize, QTimer
-from serial_com_reader import PortReader, ReadPortData
+from serial_com_helper import PortReader, ReadPortData, DataSaving
 import threading
 import queue
+import time
 
 class MyMainWindow(QMainWindow):
     """
@@ -27,7 +29,11 @@ class MyMainWindow(QMainWindow):
         self.dataAr = []
         self.x, self.y, self.z = None, None, None
         self.data_queue = queue.Queue()
+        self.save_data_queue = queue.Queue()
         self.total_time = 0
+        self.rms = None
+        self.recording = False
+        self.save_directory = None
 
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('w')
@@ -40,32 +46,48 @@ class MyMainWindow(QMainWindow):
         self.timer.start(1)
         self.thread = threading.Thread(target=self.readDataThread, daemon=True)
         self.thread.start()
+        self.thread2 = threading.Thread(target=self.processData, daemon=True)
+        self.thread2.start()
 
         self.second_plot_visible = False
+        self.third_plot_visible = False
 
     def plotData(self, time):
         if self.y is not None and len(time)==len(self.z):
             self.plot_widget.clear()
-            self.plot_widget.plot(time, self.z, pen='k')
+            self.plot_widget.plot(time, self.z, pen={'color': 'k', 'width':1})
             styles = {"color": "#454545", "font-size": "12px"}
             self.plot_widget.setBackground('w')
             self.plot_widget.setLabel("left", "Acceleration, g", **styles)
             self.plot_widget.setLabel("bottom", "Time, ms", **styles)
             self.plot_widget.setXRange(time[0], time[-1])
 
+            self.rms = np.sqrt(np.mean(self.z**2))*9.81
+            self.calculatedRMS.setText(f"RMS: {self.rms} m/s**2")
             fft_z = np.fft.fft(self.z)
             freq = np.fft.fftfreq(len(self.z), d=(1/4000)) #d=1/odr
+            (f_c, S) = signal.welch(self.z, 4000, nperseg=len(self.z))
             if self.second_plot_visible == True:
                 self.plotFFT(fft_z, freq)
+            if self.third_plot_visible == True:
+                self.plotPeriodogram(f_c, S)
 
     def plotFFT(self, fft_z, freq):
         n = len(self.z)
         half_n = n//2
         self.second_plot_widget.clear()
-        self.second_plot_widget.plot(freq[:half_n], np.abs(fft_z)[:half_n], pen='r')
+        self.second_plot_widget.plot(freq[:half_n], np.abs(fft_z)[:half_n], pen={'color': 'r', 'width':1})
         styles = {"color": "#454545", "font-size": "12px"}
         self.second_plot_widget.setLabel("left", "Amplitude", **styles)
         self.second_plot_widget.setLabel("bottom", 'Frequency, Hz', **styles)
+
+    def plotPeriodogram(self, f_c, S):
+        self.third_plot_widget.clear()
+        self.third_plot_widget.setLogMode(False, True)
+        self.third_plot_widget.plot(f_c, S, pen={'color': 'r', 'width':1})
+        styles = {"color": "#454545", "font-size": "12px"}
+        self.third_plot_widget.setLabel("left", "PSD [V**2/Hz]", **styles)
+        self.third_plot_widget.setLabel("bottom", 'Frequency, Hz', **styles)
 
     def updatePlot(self):
         if not self.data_queue.empty():
@@ -80,6 +102,17 @@ class MyMainWindow(QMainWindow):
                 if data is not None and not isinstance(data, OSError):
                     for line in data:
                         self.data_queue.put(line)
+
+    def saveDataThread(self):
+        while self.recording:
+            if not self.save_data_queue.empty():
+                data_to_save = []
+                while not self.save_data_queue.empty():
+                    data_to_save.append(self.save_data_queue.get())
+                saveData = DataSaving(data_to_save, self.save_directory)
+                saveData.save()
+                saveData.combineFiles()
+            time.sleep(1)
 
     def processData(self):
         decodedData = []
@@ -100,6 +133,7 @@ class MyMainWindow(QMainWindow):
             new_time = np.arange(self.total_time, self.total_time + num_data_points * 0.25, 0.25)
             self.total_time += num_data_points * 0.25 #1/odr, ms
             self.plotData(new_time)
+            self.save_data_queue.put(decodedData)
 
     def updateData(self):
         if self.port and self.baud:
@@ -116,7 +150,7 @@ class MyMainWindow(QMainWindow):
         self.csv_file_name = ""
 
     def createToolbar(self):
-        self.toolbar = self.addToolBar("File")
+        self.toolbar = self.addToolBar("")
         self.toolbar.setContextMenuPolicy(Qt.PreventContextMenu)
         self.toolbar.setMovable(False)
         self.toolbar.setAllowedAreas(Qt.TopToolBarArea)
@@ -124,10 +158,11 @@ class MyMainWindow(QMainWindow):
         self.toolbar.setStyleSheet("border: 2px; padding: 4px;")
         self.setWindowIcon(self.style().standardIcon(QStyle.SP_FileDialogListView))
 
-        save_icon = self.style().standardIcon(QStyle.SP_DialogSaveButton)
-        save_btn = QToolButton(text = "Save", icon = save_icon)
-        save_btn.setStyleSheet("QToolButton:hover {background: #D7DAE0;}")
-        self.toolbar.addWidget(save_btn)
+        record_icon = self.style().standardIcon(QStyle.SP_DialogSaveButton)
+        record_btn = QToolButton(text = "Record measurement", icon = record_icon)
+        record_btn.setStyleSheet("QToolButton:hover {background: #D7DAE0;}")
+        record_btn.clicked.connect(self.selectSaveDirectory)
+        self.toolbar.addWidget(record_btn)
 
         self.statusbar = self.statusBar()
         self.statusbar.setStyleSheet("font-size: 12pt; color: #888a85")
@@ -137,6 +172,10 @@ class MyMainWindow(QMainWindow):
         self.updatePorts()
         self.toolbar.addWidget(self.portComboBox)
 
+        refresh_action = QAction("Refresh ports", self)
+        refresh_action.triggered.connect(self.updatePorts)
+        self.toolbar.addAction(refresh_action)
+
         self.baudRateComboBox = QComboBox()
         self.baudRateComboBox.setFixedWidth(100)
         bauds = ['300 baud', '1200 baud', '2400 baud', '4800 baud', '9600 baud', '19200 baud',
@@ -144,19 +183,28 @@ class MyMainWindow(QMainWindow):
         '500000 baud', '1000000 baud', '2000000 baud']
         self.baudRateComboBox.addItems(bauds)
         self.toolbar.addWidget(self.baudRateComboBox)
-        self.selectedBaudRate = QLabel(f"Selected baud rate: {self.baud}")
-        self.layout.addWidget(self.selectedBaudRate)
-        self.baudRateComboBox.currentIndexChanged.connect(self.onBaudSelected)
 
-        refresh_action = QAction("Refresh ports", self)
-        refresh_action.triggered.connect(self.updatePorts)
-        self.toolbar.addAction(refresh_action)
+        stop_icon = self.style().standardIcon(QStyle.SP_BrowserStop)
+        self.stop_btn = QToolButton(text="Stop recording", icon=stop_icon)
+        self.stop_btn.setStyleSheet("QToolButton:hover {background: #D7DAE0;}")
+        self.stop_btn.clicked.connect(self.stopRecording)
+        self.stop_btn.setEnabled(False)
+        self.toolbar.addWidget(self.stop_btn)
+
+        self.calculatedRMS = QLabel()
+        self.layout.addWidget(self.calculatedRMS)
+
         self.selectedPortLabel = QLabel(f"Selected Port: {self.port}")
         self.layout.addWidget(self.selectedPortLabel)
         self.portComboBox.currentIndexChanged.connect(self.onPortSelected)
 
+        self.selectedBaudRate = QLabel(f"Selected baud rate: {self.baud}")
+        self.layout.addWidget(self.selectedBaudRate)
+        self.baudRateComboBox.currentIndexChanged.connect(self.onBaudSelected)
+
         self.toggle_fft_button = QPushButton('FFT')
         self.toggle_fft_button.clicked.connect(self.toggleFFT)
+        self.toggle_fft_button.setFixedWidth(150)
         self.layout.addWidget(self.toggle_fft_button)
         self.second_plot_widget = pg.PlotWidget()
         self.second_plot_widget.setBackground('w')
@@ -164,13 +212,56 @@ class MyMainWindow(QMainWindow):
         self.second_plot_widget.hide()
         self.layout.addWidget(self.second_plot_widget)
 
+        self.toggle_power_spectrum_button = QPushButton('Power spectrum')
+        self.toggle_power_spectrum_button.clicked.connect(self.togglePeriodogram)
+        self.toggle_power_spectrum_button.setFixedWidth(150)
+        self.layout.addWidget(self.toggle_power_spectrum_button)
+        self.third_plot_widget = pg.PlotWidget()
+        self.third_plot_widget.setBackground('w')
+        self.third_plot_widget.setFixedHeight(280)
+        self.third_plot_widget.hide()
+        self.layout.addWidget(self.third_plot_widget)
+
+    def selectSaveDirectory(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ShowDirsOnly
+        directory = QFileDialog.getExistingDirectory(self, "Select Directory", options=options)
+        if directory:
+            self.save_directory = directory
+            self.startRecording()
+            self.stop_btn.setEnabled(True)
+
+    def startRecording(self):
+        self.stop_btn.setEnabled(True)
+        self.recording = True
+        threading.Thread(target=self.saveDataThread, daemon=True).start()
+
+    def stopRecording(self):
+        reply = QMessageBox.question(self, 'Stop Saving', 'Are you sure you want to stop saving?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.recording = False
+
     def toggleFFT(self):
         if self.second_plot_visible:
             self.second_plot_widget.hide()
             self.second_plot_visible = False
         else:
+            if self.third_plot_visible:
+                self.third_plot_widget.hide()
+                self.third_plot_visible = False
             self.second_plot_widget.show()
             self.second_plot_visible = True
+
+    def togglePeriodogram(self):
+        if self.third_plot_visible:
+            self.third_plot_widget.hide()
+            self.third_plot_visible = False
+        else:
+            if self.second_plot_visible:
+                self.second_plot_widget.hide()
+                self.second_plot_visible = False
+            self.third_plot_widget.show()
+            self.third_plot_visible = True
 
     def onBaudSelected(self):
         if self.read:
@@ -203,16 +294,17 @@ class MyMainWindow(QMainWindow):
             self.read = None
             self.port = None
             selectedPort = self.portComboBox.currentText()
-            self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
+            self.selectedPortLabel.setText(f"Selected Port: {self.port}")
         else:
             selectedPort = self.portComboBox.currentText()
-            self.selectedPortLabel.setText(f"Selected Port: {selectedPort}")
             self.port = selectedPort.split(" ")[0][:-1]
+            self.selectedPortLabel.setText(f"Selected Port: {self.port}")
             if self.port and self.baud:
                 self.statusbar.showMessage("Ready")
                 self.updateData()
 
 def main():
+    pg.setConfigOptions(antialias=True)
     app = QApplication(sys.argv)
     window = MyMainWindow()
     window.show()
