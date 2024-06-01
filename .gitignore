@@ -1,5 +1,5 @@
 .venv/
-**/__pycache__
+**/__pycache__/
 **/.pytest_cache
 *.sw*
 *.pyc
@@ -25,3 +25,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+__pycache__/serial_com_helper.cpython-39.pyc
+save_temp_to_file.py
+arduino-serial-com-plotter.spec
+__pycache__/serial_com_helper.cpython-39.pyc

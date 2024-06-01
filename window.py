@@ -3,7 +3,7 @@ import numpy as np
 from scipy import signal
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QToolButton, QRadioButton, QVBoxLayout,
-                             QMessageBox, QFileDialog, QStyle,
+                             QMessageBox, QFileDialog, QStyle, QHBoxLayout,
                              QAction, QComboBox, QLabel, QPushButton)
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt, QSize, QTimer
@@ -12,6 +12,7 @@ import threading
 import queue
 from save_temp_to_file import main_temp
 import time
+from datetime import datetime
 
 class MyMainWindow(QMainWindow):
     """
@@ -36,6 +37,7 @@ class MyMainWindow(QMainWindow):
         self.rms = None
         self.recording = False
         self.save_directory = None
+        self.scaling = 'automatic scaling'
 
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground('w')
@@ -62,6 +64,18 @@ class MyMainWindow(QMainWindow):
         elif self.selectedAxis == "z":
             axis = self.z
         if self.z is not None and len(time)==len(self.z):
+            if self.scaling =='±g':
+                self.plot_widget.setYRange(-1, 1) #+- g FS
+            elif self.scaling =='±2g':
+                self.plot_widget.setYRange(-2, 2) #+- g FS
+            elif self.scaling =='±4g':
+                self.plot_widget.setYRange(-4, 4) #+- 4g FS
+            elif self.scaling =='±8g':
+                self.plot_widget.setYRange(-8, 8) #+- 8g FS
+            elif self.scaling =='±16g':
+                self.plot_widget.setYRange(-16, 16) #+- 16g FS
+            else:
+                self.plot_widget.enableAutoRange(axis='y')
             self.plot_widget.clear()
             self.plot_widget.plot(time, axis, pen={'color': 'k', 'width':1})
             styles = {"color": "#454545", "font-size": "12px"}
@@ -112,14 +126,15 @@ class MyMainWindow(QMainWindow):
                         self.data_queue.put(line)
 
     def saveDataThread(self):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"data_{timestamp}.csv"
         while self.recording:
             if not self.save_data_queue.empty():
                 data_to_save = []
                 while not self.save_data_queue.empty():
                     data_to_save.append(self.save_data_queue.get())
                 saveData = DataSaving(data_to_save, self.save_directory)
-                saveData.save()
-                saveData.combineFiles()
+                saveData.save(filename)
             time.sleep(1)
 
     def processData(self):
@@ -151,7 +166,7 @@ class MyMainWindow(QMainWindow):
                 self.processData()
 
     def setupGUI(self):
-        self.setGeometry(0, 0, 1000, 700)
+        self.setGeometry(0, 0, 1100, 700)
         self.setContentsMargins(10, 10, 10, 10)
         self.createToolbar()
         self.csv_file = ""
@@ -205,9 +220,21 @@ class MyMainWindow(QMainWindow):
         self.radio_button_x = QRadioButton("X")
         self.radio_button_y = QRadioButton("Y")
         self.radio_button_z = QRadioButton("Z")
-        self.layout.addWidget(self.radio_button_x)
-        self.layout.addWidget(self.radio_button_y)
-        self.layout.addWidget(self.radio_button_z)
+        self.radio_button_layout = QHBoxLayout()
+        self.radio_button_layout.addWidget(self.radio_button_x)
+        self.radio_button_layout.addWidget(self.radio_button_y)
+        self.radio_button_layout.addWidget(self.radio_button_z)
+
+        self.yScaleComboBox = QComboBox()
+        self.yScaleComboBox.setFixedWidth(150)
+        yscales = ['automatic scale', '±g', '±2g', '±4g', '±8g', '±16g']
+        self.yScaleComboBox.addItems(yscales)
+        self.radio_button_layout.addWidget(self.yScaleComboBox)
+        self.yScaleComboBox.currentIndexChanged.connect(self.onScaleSelected)
+
+        self.radio_button_layout.addStretch()
+        self.layout.addLayout(self.radio_button_layout)
+
         self.radio_button_x.toggled.connect(self.on_radio_button_toggled)
         self.radio_button_y.toggled.connect(self.on_radio_button_toggled)
         self.radio_button_z.toggled.connect(self.on_radio_button_toggled)
@@ -256,7 +283,7 @@ class MyMainWindow(QMainWindow):
         if directory:
             self.save_directory = directory
             reply = QMessageBox.question(self, 'Start saving data',
-                                         "The current option will start continuously saving data to the chosen dircetory. Proceed?",
+                                         "The chosen action will create a .csv file and start continuously saving data to the chosen directory. Proceed?",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.startRecording()
@@ -271,6 +298,7 @@ class MyMainWindow(QMainWindow):
         reply = QMessageBox.question(self, 'Stop Saving', 'Are you sure you want to stop saving?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.recording = False
+            self.stop_btn.setDisabled(True)
 
     def toggleFFT(self):
         if self.second_plot_visible:
@@ -293,6 +321,10 @@ class MyMainWindow(QMainWindow):
                 self.second_plot_visible = False
             self.third_plot_widget.show()
             self.third_plot_visible = True
+
+    def onScaleSelected(self):
+        selectedScalingMode = self.yScaleComboBox.currentText()
+        self.scaling = selectedScalingMode
 
     def onBaudSelected(self):
         if self.read:
@@ -317,7 +349,7 @@ class MyMainWindow(QMainWindow):
             self.read.closePort()
             self.read = None
         self.port = None
-        self.statusbar.showMessage("Select COM and baud rate")
+        self.statusbar.showMessage("Select COM and baud rate to begin")
 
     def onPortSelected(self):
         if self.read:
