@@ -4,6 +4,7 @@ import csv
 import numpy as np
 import serial.tools.list_ports
 import threading
+from datetime import datetime
 
 class PortReader:
     def readAvailablePorts():
@@ -40,7 +41,7 @@ class ReadPortData:
                     self.portOpen = True
                     while self.portOpen == True:
                         size = self.serialData.in_waiting
-                        if size > data_displayed_size: #three times the selected adxl355 odr
+                        if size > data_displayed_size:
                             newDataRow = self.serialData.readlines(size)
                             newDataArray = np.array(newDataRow, dtype='object')
                             dataArray = np.hstack([dataArray, newDataArray])
@@ -50,7 +51,7 @@ class ReadPortData:
             except Exception as e:
                 self.serialData.close()
                 self.portOpen = False
-                return None
+                return None, None
             finally:
                 self.serialData.close()
 
@@ -70,7 +71,7 @@ class DataSaving:
                 f.close()
         with open(filepath, 'a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(['X', 'Y', 'Z'])
+            writer.writerow(['Time','X', 'Y', 'Z'])
             decodedData = self.data_queue
             if decodedData:
                 decodedData = decodedData[0]
@@ -84,5 +85,6 @@ class DataSaving:
                     y = np.append(y, numbers[1])
                     z = np.append(z, numbers[2])
                 for i in range(len(z)):
-                    writer.writerow([x[i], y[i], z[i]])
+                    timestamp2 = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+                    writer.writerow([timestamp2,x[i], y[i], z[i]])
         file.close()

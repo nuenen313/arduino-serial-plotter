@@ -166,7 +166,7 @@ class MyMainWindow(QMainWindow):
                 self.processData()
 
     def setupGUI(self):
-        self.setGeometry(0, 0, 1100, 700)
+        self.setGeometry(0, 0, 1200, 700)
         self.setContentsMargins(10, 10, 10, 10)
         self.createToolbar()
         self.csv_file = ""
